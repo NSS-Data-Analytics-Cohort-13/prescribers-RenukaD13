@@ -68,22 +68,21 @@ LIMIT 1
 
 SELECT 
 	d.generic_name,
-	ROUND(p1.total_drug_cost,2) :: MONEY AS total_drug_cost
+	ROUND(SUM(p1.total_drug_cost),2) :: MONEY AS total_drug_cost
 FROM drug AS d
 INNER JOIN prescription AS p1
 	ON d.drug_name = p1.drug_name 
 GROUP BY 
-	d.generic_name,
-	p1.total_drug_cost
+	d.generic_name
 ORDER BY total_drug_cost desc--Sort data by total drug cost in descending order 2829174.3
 LIMIT 1 
-/* Answer = "PIRFENIDONE" had the highest total drug cost 2829174.30*/
+/* Answer = "INSULIN GLARGINE,HUM.REC.ANLOG" had the highest total drug cost "$104,264,066.35"*/
 
 --Q3 b. Which drug (generic_name) has the hightest total cost per day? 
 
 SELECT 
 	d.generic_name,
-	ROUND((p1.total_drug_cost/p1.total_day_supply),2) :: MONEY AS total_cost_per_day
+	ROUND((p1.total_drug_cost)/(p1.total_day_supply),2) :: MONEY AS total_cost_per_day
 FROM drug AS d
 INNER JOIN prescription AS p1
 	ON d.drug_name = p1.drug_name 
@@ -92,8 +91,17 @@ GROUP BY
 	total_cost_per_day
 ORDER BY total_cost_per_day desc--Sort data by total drug cost in descending order 2829174.3
 LIMIT 1 
+
+SELECT drug.generic_name
+	,(SUM(prescription.total_drug_cost)/SUM(prescription.total_day_supply)) :: MONEY as daily_drug_cost
+FROM prescription
+INNER JOIN drug
+	USING (drug_name)
+GROUP BY drug.generic_name
+ORDER BY daily_drug_cost DESC
+LIMIT 1 
+/*Answer -"C1 ESTERASE INHIBITOR"	"$3,495.22"*/
 -- Or Can my do total cost per day = total_drug_cost / total_day supply?
-select * from prescription
 
 --4. a. For each drug in the drug table, return the drug name and then a column named 'drug_type' which says 'opioid' for drugs which have opioid_drug_flag = 'Y', says 'antibiotic' for those drugs which have antibiotic_drug_flag = 'Y', and says 'neither' for all other drugs. 
 
@@ -107,7 +115,7 @@ FROM drug AS d1
 /*Answer 4a= 3425 rows*/
 
 /* Investigating answer with following queries: 
-If we run above query with distinct(drug_name), number of rows returned are 3260, which are 7 extra rows. It's because drug_name Sodium chloride(7 rows), has different generic names, so is different.
+If we run above query with distinct(drug_name), number of rows returned are 3260, which are 7 extra rows. It's because drug_name Sodium chloride(7 rows), has different generic names, so is different AND ADDING 7 ROWS with distinct clause.
 select distinct(drug_name) from drug = 3253 
 select * from drug = 3425 rows
 */
@@ -137,9 +145,7 @@ WHERE f.state = 'TN'
 
 -- Q5 b. Which cbsa has the largest combined population? Which has the smallest? Report the CBSA name and total population.
 
-SELECT 
-	cb.cbsaname, 
-	SUM(p.population) as combined_population
+SELECT cb.cbsaname, SUM(p.population) as combined_population
 FROM fips_county AS f
 INNER JOIN cbsa AS cb 
 	ON f.fipscounty = cb.fipscounty
@@ -148,25 +154,73 @@ INNER JOIN population AS p
 WHERE f.state = 'TN' 
 GROUP BY cb.cbsaname
 ORDER BY combined_population
+LIMIT 1 
 /* Answer largest combined population = "Nashville-Davidson_Murfreesboro-Franklin" and Total Population is "1830410"
   smallest combined population = "Morristown, TN" and Total Population is "116352" */
+
+/*Dibran way:
+(
+SELECT cbsaname, SUM(population) AS total_population, 'largest' as flag
+FROM cbsa 
+INNER JOIN population
+USING(fipscounty)
+GROUP BY cbsaname
+ORDER BY total_population DESC
+limit 1
+)
+UNION
+(
+SELECT cbsaname, SUM(population) AS total_population, 'smallest' as flag
+FROM cbsa 
+INNER JOIN population
+USING(fipscounty)
+GROUP BY cbsaname
+ORDER BY total_population 
+limit 1
+) order by total_population desc
+*/
  
 -- Q5 c. What is the largest (in terms of population) county which is not included in a CBSA? Report the county name and population.
 
-SELECT 
-	f.county, 
-	SUM(p.population) as combined_population
+SELECT f.county, SUM(p.population) as combined_population
 FROM fips_county AS f
 INNER JOIN population AS p 
 	ON f.fipscounty = p.fipscounty
 WHERE f.fipscounty IN
 		--Subquery to return TN fipscounty which are not included in CBSA
-		(SELECT fipscounty FROM fips_county WHERE STATE = 'TN' --fips_county table has 96 records for TN
+		(SELECT fipscounty FROM fips_county --WHERE STATE = 'TN' --fips_county table has 96 records for TN
 		EXCEPT
 		SELECT fipscounty FROM cbsa) --Total 54 fipscounty are not present in CBSA
 GROUP BY f.county
 ORDER BY combined_population desc
 LIMIT 1
+
+/*
+Dibran:
+SELECT county, population
+FROM fips_county
+INNER JOIN population
+USING(fipscounty)
+WHERE fipscounty NOT IN (
+	SELECT fipscounty
+	FROM cbsa
+)
+ORDER BY population DESC;
+
+Ryan and Charlie:
+SELECT 	f.county, 
+		f.state, 
+		SUM(p.population) AS total_pop
+FROM population AS p
+INNER JOIN fips_county AS f
+USING(fipscounty)
+LEFT JOIN cbsa as c 
+USING (fipscounty)
+WHERE c.cbsaname IS NULL
+GROUP BY f.county, 
+		 f.state
+ORDER BY total_pop DESC;
+*/
 /* Answer = "SEVIER" county with 95523 population is the largest county in terms of population, which is not included in a CBSA*/
 
 --Q6 a. Find all rows in the prescription table where total_claims is at least 3000. Report the drug_name and the total_claim_count.
@@ -175,6 +229,14 @@ SELECT drug_name, total_claim_count
 FROM prescription 
 WHERE total_claim_count >=3000
 /* Answer : 9 rows*/
+
+/*Jesse:
+SELECT p.drug_name, SUM(p.total_claim_count)
+FROM prescription AS p
+WHERE p.total_claim_count >=3000
+GROUP BY p.drug_name
+ORDER BY SUM(p.total_claim_count) DESC
+*/
 
 --Q6 b. For each instance that you found in part a, add a column that indicates whether the drug is an opioid.
 
@@ -205,31 +267,45 @@ WHERE p1.total_claim_count >=3000
 --7. The goal of this exercise is to generate a full list of all pain management specialists in Nashville and the number of claims they had for each opioid. **Hint:** The results from all 3 parts will have 637 rows.
 
 --Q7 a. First, create a list of all npi/drug_name combinations for pain management specialists (specialty_description = 'Pain Management) in the city of Nashville (nppes_provider_city = 'NASHVILLE'), where the drug is an opioid (opiod_drug_flag = 'Y'). **Warning:** Double-check your query before running it. You will only need to use the prescriber and drug tables since you don't need the claims numbers yet.
-
-
+	
  SELECT p1.npi, d.drug_name
-, p1.nppes_provider_first_name, p1.nppes_provider_last_org_name
  FROM prescriber AS p1
- INNER JOIN prescription AS p2
- 	USING(npi)
-	INNER JOIN drug AS d
-	ON p2.drug_name = d.drug_name 
+	CROSS JOIN drug AS d
  WHERE p1.specialty_description = 'Pain Management'
  AND p1.nppes_provider_city = 'NASHVILLE'
- order by 1,3,4
-/*Answer = 89 rows*/
+ AND d.opioid_drug_flag = 'Y'
+ ORDER BY p1.npi, d.drug_name
+/*Answer = 637 rows*/
 
 --Q7 b. Next, report the number of claims per drug per prescriber. Be sure to include all combinations, whether or not the prescriber had any claims. You should report the npi, the drug name, and the number of claims (total_claim_count).
 
-SELECT p1.npi, p2.drug_name, p2.total_claim_count
+SELECT 
+	p1.npi, d.drug_name, 
+	SUM(p2.total_claim_count) AS total_drug_count
 FROM prescriber AS p1
-LEFT JOIN prescription AS p2 USING(npi)
+CROSS JOIN drug AS d
+LEFT JOIN prescription AS p2 
+	USING(drug_name)
 WHERE p1.specialty_description = 'Pain Management'
-AND p1.nppes_provider_city = 'NASHVILLE'
+	AND p1.nppes_provider_city = 'NASHVILLE'
+	AND d.opioid_drug_flag = 'Y'
+GROUP BY p1.npi, d.drug_name
+ORDER BY p1.npi DESC
 
 --Q7 c. Finally, if you have not done so already, fill in any missing values for total_claim_count with 0. Hint - Google the COALESCE function.
---Answer No NULL values found to convert it into 0
 
+SELECT 
+	p1.npi, d.drug_name, 
+	COALESCE(SUM(p2.total_claim_count),0) AS total_drug_count
+FROM prescriber AS p1
+CROSS JOIN drug AS d
+LEFT JOIN prescription AS p2 
+	USING(drug_name)
+WHERE p1.specialty_description = 'Pain Management'
+	AND p1.nppes_provider_city = 'NASHVILLE'
+	AND d.opioid_drug_flag = 'Y'
+GROUP BY p1.npi, d.drug_name
+ORDER BY p1.npi DESC
 
 
 
